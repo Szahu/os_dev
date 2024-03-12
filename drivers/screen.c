@@ -2,6 +2,7 @@
 #include "types.h"
 #include "port_utils.h"
 #include "memory.h"
+#include "keyboard.h"
 
 uint16_t get_screen_offset(uint16_t col, uint16_t row) {
     return (row * MAX_COLS + col) * 2;
@@ -39,38 +40,48 @@ uint16_t get_cursor() {
 void print_char(char character, int offset, uint8_t attributes) {
     uint8_t* const vid_mem = (uint8_t*)(VIDEO_ADDRESS);
 
-    vid_mem[offset] = character;
-    vid_mem[offset + 1] = attributes;
+    if (offset < 0) offset = get_cursor();
+
+    switch (character) {
+        case '\n':
+            const uint16_t row = (offset / 2) / MAX_COLS;
+            offset = get_screen_offset(0, row + 1);
+            break;
+        case KEY_BACKSPACE_ASCII:
+            if (offset <= 0) return;
+            offset -= 2;
+            vid_mem[offset] = 0x0;
+            vid_mem[offset + 1] = WHITE_ON_BLACK;
+            break;
+        default:
+            vid_mem[offset] = character;
+            vid_mem[offset + 1] = attributes;
+            offset += 2;
+    }
+
+    set_cursor(offset);
+
+    // scrolling
+    if (offset >= MAX_COLS * MAX_ROWS * 2) {
+        uint8_t* const vid_mem = (uint8_t*)(VIDEO_ADDRESS);
+        offset -= MAX_COLS * 2;
+        set_cursor(offset);
+        for (int i = 0;i < MAX_ROWS - 1; ++i) {
+            memory_copy(vid_mem + get_screen_offset(0, i), 
+                        vid_mem + get_screen_offset(0, i + 1), 
+                        MAX_COLS * 2);
+        }
+        for (int i = 0;i < MAX_COLS; ++i) {
+            vid_mem[get_screen_offset(i, MAX_ROWS - 1)] = ' ';
+            vid_mem[get_screen_offset(i, MAX_ROWS - 1) + 1] = WHITE_ON_BLACK;
+        }
+    }
 }
 
 void print(char* str) {
-    uint16_t offset = get_cursor();
     for (int i = 0;str[i] != 0x0; ++i) {
         char ch = str[i];
-        switch (ch) {
-            case '\n':
-                const uint16_t row = (offset / 2) / MAX_COLS;
-                offset = get_screen_offset(0, row + 1);
-                break;
-            default:
-                print_char(ch, offset, WHITE_ON_BLACK);
-                offset += 2;
-        }
-        set_cursor(offset);
-        if (offset >= MAX_COLS * MAX_ROWS * 2) {
-            uint8_t* const vid_mem = (uint8_t*)(VIDEO_ADDRESS);
-            offset -= MAX_COLS * 2;
-            set_cursor(offset);
-            for (int i = 0;i < MAX_ROWS - 1; ++i) {
-                memory_copy(vid_mem + get_screen_offset(0, i), 
-                            vid_mem + get_screen_offset(0, i + 1), 
-                            MAX_COLS * 2);
-            }
-            for (int i = 0;i < MAX_COLS; ++i) {
-                vid_mem[get_screen_offset(i, MAX_ROWS - 1)] = ' ';
-                vid_mem[get_screen_offset(i, MAX_ROWS - 1) + 1] = WHITE_ON_BLACK;
-            }
-        }
+        print_char(ch, -1, WHITE_ON_BLACK);
     }
 }
 
